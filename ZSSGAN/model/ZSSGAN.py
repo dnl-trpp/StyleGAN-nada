@@ -165,11 +165,8 @@ class ZSSGAN(torch.nn.Module):
 
         # Losses
         self.clip_loss_models = {model_name: CLIPLoss(self.device, 
-                                                      lambda_direction=args.lambda_direction, 
-                                                      lambda_patch=args.lambda_patch, 
+                                                      lambda_direction=args.lambda_direction,  
                                                       lambda_global=args.lambda_global, 
-                                                      lambda_manifold=args.lambda_manifold, 
-                                                      lambda_texture=args.lambda_texture,
                                                       clip_model=model_name) 
                                 for model_name in args.clip_models}
 
