@@ -14,12 +14,14 @@ from functools import partial
 from ZSSGAN.model.sg2_model import Generator, Discriminator
 from ZSSGAN.criteria.clip_loss import CLIPLoss       
 
+# Set all parameters of a model as traiable (or desets)
 def requires_grad(model, flag=True):
     for p in model.parameters():
         p.requires_grad = flag
 
 class SG2Generator(torch.nn.Module):
     def __init__(self, checkpoint_path, latent_size=512, map_layers=8, img_size=256, channel_multiplier=2, device='cuda:0'):
+        #Loads and initializes StyleGan2 Generator
         super(SG2Generator, self).__init__()
 
         self.generator = Generator(
@@ -36,6 +38,7 @@ class SG2Generator(torch.nn.Module):
     def get_all_layers(self):
         return list(self.generator.children())
 
+    #Queries different layers based on a training phase
     def get_training_layers(self, phase):
 
         if phase == 'texture':
@@ -57,16 +60,15 @@ class SG2Generator(torch.nn.Module):
             # everything except mapping and ToRGB
             return list(self.get_all_layers())[1:3] + list(self.get_all_layers()[4][:])  
 
+    #Disables training for all layers
     def freeze_layers(self, layer_list=None):
-        '''
-        Disable training for all layers in list.
-        '''
         if layer_list is None:
             self.freeze_layers(self.get_all_layers())
         else:
             for layer in layer_list:
                 requires_grad(layer, False)
 
+    #Enables training for all layers
     def unfreeze_layers(self, layer_list=None):
         '''
         Enable training for all layers in list.
@@ -77,10 +79,8 @@ class SG2Generator(torch.nn.Module):
             for layer in layer_list:
                 requires_grad(layer, True)
 
+    #converts s codes to w codes (stylegan2 mapper)
     def style(self, styles):
-        '''
-        Convert z codes to w codes.
-        '''
         styles = [self.generator.style(s) for s in styles]
         return styles
 
@@ -90,7 +90,6 @@ class SG2Generator(torch.nn.Module):
     def modulation_layers(self):
         return self.generator.modulation_layers
 
-    #TODO Maybe convert to kwargs
     def forward(self,
         styles,
         return_latents=False,
@@ -104,6 +103,7 @@ class SG2Generator(torch.nn.Module):
         return self.generator(styles, return_latents=return_latents, truncation=truncation, truncation_latent=self.mean_latent, noise=noise, randomize_noise=randomize_noise, input_is_latent=input_is_latent, input_is_s_code=input_is_s_code)
 
 class SG2Discriminator(torch.nn.Module):
+    #Initializes Stylegan2 Discriminator
     def __init__(self, checkpoint_path, img_size=256, channel_multiplier=2, device='cuda:0'):
         super(SG2Discriminator, self).__init__()
 
@@ -121,20 +121,16 @@ class SG2Discriminator(torch.nn.Module):
     def get_training_layers(self):
         return self.get_all_layers() 
 
+    #Disables Training
     def freeze_layers(self, layer_list=None):
-        '''
-        Disable training for all layers in list.
-        '''
         if layer_list is None:
             self.freeze_layers(self.get_all_layers())
         else:
             for layer in layer_list:
                 requires_grad(layer, False)
 
+    #Enables Training
     def unfreeze_layers(self, layer_list=None):
-        '''
-        Enable training for all layers in list.
-        '''
         if layer_list is None:
             self.unfreeze_layers(self.get_all_layers())
         else:
@@ -180,19 +176,7 @@ class ZSSGAN(torch.nn.Module):
         self.auto_layer_k     = args.auto_layer_k
         self.auto_layer_iters = args.auto_layer_iters
         
-        if args.target_img_list is not None:
-            self.set_img2img_direction()
-
-    def set_img2img_direction(self):
-        with torch.no_grad():
-            sample_z  = torch.randn(self.args.img2img_batch, 512, device=self.device)
-            generated = self.generator_trainable([sample_z])[0]
-
-            for _, model in self.clip_loss_models.items():
-                direction = model.compute_img2img_direction(generated, self.args.target_img_list)
-
-                model.target_direction = direction
-
+    #Adaptive layer freezing
     def determine_opt_layers(self):
 
         sample_z = torch.randn(self.args.auto_layer_batch, 512, device=self.device)
@@ -252,6 +236,7 @@ class ZSSGAN(torch.nn.Module):
         randomize_noise=True,
     ):
 
+        #If adaptive layer freezing is enables
         if self.training and self.auto_layer_iters > 0:
             self.generator_trainable.unfreeze_layers()
             train_layers = self.determine_opt_layers()
@@ -263,22 +248,22 @@ class ZSSGAN(torch.nn.Module):
             self.generator_trainable.unfreeze_layers(train_layers)
 
         with torch.no_grad():
+             
+            #Converts w styles to s styles if needed
             if input_is_latent:
                 w_styles = styles
             else:
                 w_styles = self.generator_frozen.style(styles)
             
+            #Generates image using original network
             frozen_img = self.generator_frozen(w_styles, input_is_latent=True, truncation=truncation, randomize_noise=randomize_noise)[0]
 
+        #Generates image using trainable network
         trainable_img = self.generator_trainable(w_styles, input_is_latent=True, truncation=truncation, randomize_noise=randomize_noise)[0]
         
+        #Computes clip loss betwwen the newly generated images and the given text directions
         clip_loss = torch.sum(torch.stack([self.clip_model_weights[model_name] * self.clip_loss_models[model_name](frozen_img, self.source_class, trainable_img, self.target_class) for model_name in self.clip_model_weights.keys()]))
 
+        #Returns everything
         return [frozen_img, trainable_img], clip_loss
 
-    def pivot(self):
-        par_frozen = dict(self.generator_frozen.named_parameters())
-        par_train  = dict(self.generator_trainable.named_parameters())
-
-        for k in par_frozen.keys():
-            par_frozen[k] = par_train[k]
