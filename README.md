@@ -16,6 +16,7 @@ Conceptually, it calculates a direction in CLIP space using text prompts and shi
 Not all layers of the G_frozen network are trained. A subset of layers is chosen based on how much they weight on the output. This is called adaptive layer freezing.
 
 ![layer_freezing](img/layer_freezing.png)
+
 For more details, the original paper is avaiable [here](https://arxiv.org/pdf/2108.00946.pdf)
 
 ## Run and train the network
