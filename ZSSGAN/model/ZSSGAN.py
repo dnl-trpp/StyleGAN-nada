@@ -240,10 +240,10 @@ class ZSSGAN(torch.nn.Module):
     ):
 
         #If adaptive layer freezing is enables
-        if self.training and self.auto_layer_iters > 0: # and iteration % self.auto_layer_interval == 0:
+        if self.training and self.auto_layer_iters > 0 and (iteration % self.auto_layer_interval == 0):
             
-           # if iteration != 0 and iteration % self.auto_layer_falloff == 0 and self.auto_layer_k > 1:
-           #     self.auto_layer_k -= 1
+            if iteration != 0 and iteration % self.auto_layer_falloff == 0 and self.auto_layer_k > 1:
+               self.auto_layer_k -= 1
 
             self.generator_trainable.unfreeze_layers()
             train_layers = self.determine_opt_layers()
